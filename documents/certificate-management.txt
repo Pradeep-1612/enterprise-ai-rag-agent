@@ -1,0 +1,16 @@
+Certificate Management Policy
+
+Production SSL/TLS certificates must be renewed before their
+expiration date.
+
+Certificates expiring within 30 days are considered at risk.
+
+Certificate renewal requires validating the certificate,
+checking the associated trading partner connection, and
+deploying the renewed certificate.
+
+The operations team should be notified when a certificate
+has fewer than 15 days remaining.
+
+Emergency renewal is required when a production certificate
+has fewer than 7 days remaining.

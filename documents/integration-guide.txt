@@ -1,0 +1,14 @@
+B2B Integration Guide
+
+Each trading partner connection can have one or more SSL/TLS
+certificates.
+
+When a certificate is renewed, the associated integration
+connection must be validated.
+
+If the connection fails validation after certificate
+deployment, the integration operations team must investigate
+the connection before traffic is restored.
+
+Certificate information can be searched using the certificate
+inventory service.

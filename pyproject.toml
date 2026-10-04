@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "enterprise-ai-rag-agent"
+version = "0.1.0"
+description = "Enterprise AI agent with RAG, memory, and tools"
+requires-python = ">=3.13"
+
+dependencies = [
+    "chromadb",
+    "sentence-transformers",
+    "ollama",
+    "pydantic"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pyright]
+include = ["src", "tests"]
+extraPaths = ["src"]
+venvPath = "."
+venv = ".venv"
