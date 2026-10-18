@@ -1,726 +1,364 @@
-# Enterprise AI Agent — RAG, Memory & Tool Orchestration
+# Enterprise AI RAG Agent
 
-A production-oriented AI engineering project exploring how to build an enterprise AI agent that combines **Retrieval-Augmented Generation (RAG), structured memory, semantic memory, tool use, and deterministic business rules**.
+A hands-on exploration of enterprise AI agent engineering, combining Retrieval-Augmented Generation (RAG), conversation memory, tool orchestration, structured validation, and deterministic business decisioning.
 
-The project is intentionally built from the ground up to understand the engineering patterns behind modern AI agents rather than hiding the architecture behind a framework.
+The goal is to understand how to build AI systems where the LLM provides reasoning while the application retains control over state, execution, and business rules.
 
-> **Status:** Work in progress — core RAG, tool orchestration, agent workflow, and memory foundations are implemented.
+> **Core principle:** Use the LLM for reasoning, and keep state, business rules, and execution under application control.
 
----
-
-## Architecture
+## 1. Architecture
 
 ```text
-                         ┌──────────────────────┐
-                         │      User Query      │
-                         └──────────┬───────────┘
-                                    │
-                                    ▼
-                         ┌──────────────────────┐
-                         │    Agent Workflow    │
-                         └──────────┬───────────┘
-                                    │
-                ┌───────────────────┼───────────────────┐
-                │                   │                   │
-                ▼                   ▼                   ▼
-        ┌───────────────┐   ┌────────────────┐   ┌───────────────┐
-        │     RAG       │   │     Memory     │   │    Tools      │
-        │               │   │                │   │               │
-        │ Vector Search │   │ Structured     │   │ Certificate   │
-        │ + Embeddings  │   │ + Semantic     │   │ Evaluation    │
-        │               │   │ + Conversation │   │ Connection    │
-        └───────┬───────┘   └───────┬────────┘   │ Status        │
-                │                   │            └───────┬───────┘
-                └───────────────────┼────────────────────┘
-                                    │
-                                    ▼
-                         ┌──────────────────────┐
-                         │ Deterministic        │
-                         │ Decision Layer       │
-                         └──────────┬───────────┘
-                                    │
-                                    ▼
-                         ┌──────────────────────┐
-                         │     Final Agent      │
-                         │ Grounded Response    │
-                         └──────────────────────┘
+                       User Request
+                            │
+                            ▼
+                  ┌───────────────────┐
+                  │  Agent Workflow   │
+                  │    workflow.py    │
+                  └─────────┬─────────┘
+                            │
+               ┌────────────┼────────────┐
+               ▼            ▼            ▼
+             Intent       Memory         RAG
+           Classification  │             │
+               │           │             │
+               └────────────┼────────────┘
+                            ▼
+                     Agent Reasoning
+                            │
+                            ▼
+                    Tool Orchestration
+                            │
+                            ▼
+                  Deterministic Decisioning
+                            │
+                            ▼
+                     Final Response
 ```
 
----
+The application controls the workflow and determines which operations execute. The LLM assists with interpreting requests, generating responses, and selecting tools where appropriate.
 
-## What This Project Explores
+## 2. Technology stack
 
-### 1. Retrieval-Augmented Generation
+| Component | Technology |
+|---|---|
+| Language | Python |
+| Local LLM runtime | Ollama |
+| Language models | Llama 3.x |
+| Embedding model | Sentence Transformers — `all-MiniLM-L6-v2` |
+| Vector database | ChromaDB |
+| Schema validation | Pydantic |
+| Workflow orchestration | Python-based custom workflow |
+| Testing and evaluation | Project-specific evaluation examples |
 
-Documents are:
+## 3. Prerequisites
 
-```text
-Documents
-   ↓
-Chunking
-   ↓
-Embeddings
-   ↓
-Vector Database
-```
+Install:
 
-When a user asks a question:
+- Python compatible with the version declared in `pyproject.toml`
+- [Ollama](https://ollama.com/download)
+- Git
 
-```text
-Question
-   ↓
-Question Embedding
-   ↓
-Similarity Search
-   ↓
-Relevant Context
-   ↓
-LLM
-   ↓
-Grounded Answer
-```
+The project runs locally without requiring a paid LLM API.
 
-The project uses:
+## 4. Installation
 
-* **Sentence Transformers** for local embeddings
-* `all-MiniLM-L6-v2` embedding model
-* **ChromaDB** as the local vector database
-* **Ollama** for local LLM inference
-
-The goal is to understand that retrieval and generation are separate concerns. A retrieved document does not automatically make an answer correct.
-
----
-
-## 2. Tool-Based Reasoning
-
-The agent can invoke deterministic application tools instead of asking the LLM to perform business logic.
-
-Current tools include:
-
-### Certificate Evaluation
-
-Evaluates certificate lifecycle conditions such as:
-
-* Remaining validity
-* Emergency renewal requirement
-* Operations notification requirement
-* Post-renewal validation requirements
-
-Example:
-
-```python
-evaluate_certificate(remaining_days=10)
-```
-
-returns structured information such as:
-
-```json
-{
-  "remaining_days": 10,
-  "at_risk": true,
-  "notify_operations": true,
-  "emergency_renewal": false
-}
-```
-
-### Connection Status
-
-Retrieves the current status of an enterprise connection.
-
-```python
-get_connection_status("CONN-1002")
-```
-
-Example:
-
-```json
-{
-  "status": "failed",
-  "trading_partner": "Partner B"
-}
-```
-
----
-
-## 3. Deterministic Business Decisions
-
-One of the key architectural principles in this project is:
-
-> **LLMs interpret and reason over information; deterministic application code owns business rules.**
-
-For example, the LLM should not decide whether:
-
-```text
-remaining_days < 7
-```
-
-means emergency renewal.
-
-That rule belongs to application code.
-
-The agent can use the LLM to determine which tools are relevant, but the resulting business decision is evaluated by deterministic code.
-
-This creates a separation between:
-
-```text
-LLM
-Semantic understanding
-Tool selection
-Natural-language reasoning
-        │
-        ▼
-Application
-Business rules
-Validation
-Authorization
-Deterministic decisions
-```
-
----
-
-# Memory Architecture
-
-The project implements two complementary forms of memory.
-
-```text
-                    MemoryManager
-                         │
-              ┌──────────┴──────────┐
-              │                     │
-              ▼                     ▼
-      Structured Memory       Semantic Memory
-              │                     │
-        Exact retrieval       Similarity search
-              │                     │
-          Python data           ChromaDB
-```
-
-## Structured Memory
-
-Structured memories are represented using a validated Pydantic model:
-
-```python
-class MemoryFact(BaseModel):
-    type: Literal[
-        "fact",
-        "claim",
-        "preference",
-        "context"
-    ]
-
-    subject: str
-    predicate: str
-    object: str
-
-    source: Literal[
-        "user",
-        "tool",
-        "database",
-        "document",
-        "agent"
-    ]
-
-    confidence: Literal[
-        "verified",
-        "unverified",
-        "inferred"
-    ]
-```
-
-Example:
-
-```json
-{
-  "type": "fact",
-  "subject": "CERT-1001",
-  "predicate": "belongs_to",
-  "object": "Partner A",
-  "source": "user",
-  "confidence": "unverified"
-}
-```
-
-Structured memory supports:
-
-* Exact retrieval
-* Updates
-* Deletion
-* Duplicate prevention
-* Structured filtering
-
----
-
-## Semantic Memory
-
-Structured memories are also indexed semantically.
-
-For example:
-
-```text
-CERT-1001 belongs_to Partner A
-```
-
-is converted into an embedding and stored in ChromaDB.
-
-This allows queries such as:
-
-```text
-"Which partner owns certificate CERT-1001?"
-```
-
-to retrieve the relevant memory even when the wording does not exactly match the stored fact.
-
-The semantic index is treated as a **secondary index**, not the source of truth.
-
----
-
-## Memory Lifecycle
-
-The `MemoryManager` owns the memory lifecycle:
-
-```text
-remember()
-    │
-    ▼
-Structured Memory
-    │
-    └──────► Semantic Index
-
-retrieve()
-    │
-    └──────► Exact structured lookup
-
-search()
-    │
-    └──────► Semantic similarity search
-
-update()
-    │
-    ├──────► Remove old semantic index
-    └──────► Store new memory
-
-forget()
-    │
-    ├──────► Remove structured memory
-    └──────► Remove semantic index
-```
-
-This keeps callers independent from the underlying storage implementation.
-
-The application interacts with:
-
-```python
-MemoryManager
-```
-
-rather than directly interacting with ChromaDB.
-
----
-
-# LLM-Based Memory Extraction
-
-The project also explores using an LLM to identify useful memories from conversational input.
-
-Example:
-
-```text
-Certificate CERT-1001 belongs to Partner A.
-```
-
-can be transformed into:
-
-```json
-{
-  "type": "fact",
-  "subject": "CERT-1001",
-  "predicate": "belongs_to",
-  "object": "Partner A"
-}
-```
-
-The extractor deliberately does **not** determine:
-
-```text
-source
-confidence
-```
-
-Those are application-level attributes.
-
-For example:
-
-```text
-LLM
- │
- ├── type
- ├── subject
- ├── predicate
- └── object
-        │
-        ▼
-Application
- │
- ├── source = user
- └── confidence = unverified
-```
-
-This prevents the LLM from arbitrarily deciding whether a piece of information should be trusted.
-
----
-
-# Agent Workflow
-
-The agent workflow currently follows an explicit state-machine pattern.
-
-```text
-START
-  │
-  ▼
-RETRIEVE
-  │
-  ▼
-PREPARE_AGENT
-  │
-  ▼
-AGENT
-  │
-  ├────── Tool Calls ──────┐
-  │                        │
-  │                        ▼
-  │                     TOOLS
-  │                        │
-  │                        ▼
-  │                ROUTE_AFTER_TOOLS
-  │                        │
-  │                        ▼
-  └──────────────────── AGENT
-                           │
-                           ▼
-                     FINAL_AGENT
-                           │
-                           ▼
-                         FINAL
-```
-
-The workflow maintains explicit state including:
-
-* User question
-* Retrieved context
-* Messages
-* Tool results
-* Decisions
-* Execution steps
-* Iteration count
-* Tool-call limits
-* Final answer
-
-The workflow currently uses a lightweight custom orchestration layer rather than immediately introducing an agent framework.
-
-This makes the underlying orchestration patterns explicit before potentially moving to a framework such as LangGraph.
-
----
-
-# Tool Registry
-
-Tools are registered with their corresponding argument schemas.
-
-Example:
-
-```python
-tool_registry = {
-    "evaluate_certificate": {
-        "function": evaluate_certificate,
-        "args_model": EvaluateCertificateArgs,
-    },
-    "get_connection_status": {
-        "function": get_connection_status,
-        "args_model": ConnectionStatusArgs,
-    },
-}
-```
-
-Tool arguments are validated with Pydantic before execution.
-
-This provides a boundary between:
-
-```text
-LLM-generated tool arguments
-             ↓
-       Pydantic validation
-             ↓
-      Application function
-```
-
-The LLM therefore cannot directly bypass the application's expected argument contract.
-
----
-
-# Technology Stack
-
-| Component          | Technology                 |
-| ------------------ | -------------------------- |
-| Language           | Python                     |
-| LLM Runtime        | Ollama                     |
-| LLM                | Llama 3.x                  |
-| Embeddings         | Sentence Transformers      |
-| Embedding Model    | `all-MiniLM-L6-v2`         |
-| Vector Database    | ChromaDB                   |
-| Data Validation    | Pydantic                   |
-| Package Management | setuptools / pip           |
-| Environment        | Python virtual environment |
-
-The project is designed to run locally without requiring a paid LLM API.
-
----
-
-# Project Structure
-
-```text
-ai-rag/
-│
-├── src/
-│   └── ai_rag/
-│       │
-│       ├── agent/
-│       │   ├── state.py
-│       │   ├── nodes.py
-│       │   └── workflow.py
-│       │
-│       ├── memory/
-│       │   ├── models.py
-│       │   ├── manager.py
-│       │   ├── extractor.py
-│       │   ├── semantic.py
-│       │   └── conversation_memory.py
-│       │
-│       ├── rag/
-│       │   ├── ingest.py
-│       │   ├── retriever.py
-│       │   ├── rag.py
-│       │   └── rag_graph_based.py
-│       │
-│       └── tools/
-│           ├── functions.py
-│           ├── definitions.py
-│           └── models.py
-│
-├── examples/
-│   ├── memory_manager_demo.py
-│   └── memory_extractor_demo.py
-│
-├── documents/
-├── chroma_db/
-├── tests/
-│
-├── pyproject.toml
-├── requirements.txt
-└── README.md
-```
-
----
-
-# Running Locally
-
-## 1. Clone the repository
+### Clone the repository
 
 ```bash
-git clone <your-repository-url>
-cd ai-rag
+git clone <repository-url>
+cd Enterprise-AI-RAG-Agent
 ```
 
-## 2. Create a virtual environment
+Replace `<repository-url>` with the actual repository URL.
+
+### Create a virtual environment
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-## 3. Install dependencies
+### Install dependencies
 
 ```bash
-python3 -m pip install -e .
+python -m pip install --upgrade pip
+python -m pip install -e .
 ```
 
-## 4. Install Ollama
+Run commands from the repository root unless an example specifies otherwise.
 
-Install Ollama for your operating system and make sure it is running.
+## 5. Configure Ollama
 
-Then pull a local model:
+### Start Ollama
+
+On macOS, open the Ollama application. On Linux, start the Ollama service or run:
+
+```bash
+ollama serve
+```
+
+If Ollama is already running, do not start another server.
+
+Verify the installation:
+
+```bash
+ollama --version
+ollama list
+```
+
+### Download the configured model
+
+For the lightweight Llama 3.2 model:
 
 ```bash
 ollama pull llama3.2:3b
 ```
 
-A stronger local model can be used depending on available system resources.
-
-## 5. Run the examples
-
-Memory manager:
+If the code is configured to use Llama 3.1 8B instead:
 
 ```bash
-python3 -m examples.memory_manager_demo
+ollama pull llama3.1:8b
 ```
 
-Memory extraction:
+The model name in the code must match an installed model. Check the configuration in `workflow.py`, `intent.py`, and other modules that invoke Ollama.
+
+Test inference independently:
 
 ```bash
-python3 -m examples.memory_extractor_demo
+ollama run llama3.2:3b
 ```
 
----
+Enter a prompt, verify the response, and type `/bye` to exit.
 
-# Design Principles
+## 6. Run the main agent
 
-### 1. LLMs are not the source of truth
+With the virtual environment activated and Ollama running:
 
-LLMs are probabilistic.
+```bash
+python -m ai_rag.agent.workflow
+```
 
-Critical business decisions should therefore be validated and enforced by deterministic application code.
+The workflow is the primary entry point. It coordinates retrieval, memory, agent reasoning, tool execution, decision routing, and response generation.
 
----
+## 7. Explore the examples
 
-### 2. Retrieval and generation are different problems
+The `examples/` directory contains six Python demonstrations. Run each from the repository root.
 
-A good RAG system needs to reason about:
+### Example catalogue
 
-* Chunking
-* Embedding quality
-* Similarity search
-* Top-K selection
-* Metadata filtering
-* Context size
-* Reranking
-* Generation quality
+| Example | Learning objective |
+|---|---|
+| `memory_demo.py` | Understand the foundational memory implementation. |
+| `conversation_memory_demo.py` | Explore conversational context and follow-up questions. |
+| `memory_manager_demo.py` | Explore memory management and retrieval. |
+| `memory_extractor_demo.py` | Examine extracting useful information from conversations. |
+| `agent_evaluation_demo.py` | Explore evaluation of agent behavior. |
+| `route_decision_evaluation_demo.py` | Examine workflow routing and decision evaluation. |
 
-Retrieving a document is not equivalent to producing a correct answer.
+These descriptions are based on the example names; consult each file for its actual implementation and dependencies.
 
----
+### Run individual examples
 
-### 3. Memory should have explicit semantics
+```bash
+python -m examples.memory_demo
+python -m examples.conversation_memory_demo
+python -m examples.memory_manager_demo
+python -m examples.memory_extractor_demo
+python -m examples.agent_evaluation_demo
+python -m examples.route_decision_evaluation_demo
+```
 
-Not every conversational statement should become a trusted fact.
+If an example is not importable as a Python module, try direct execution:
 
-The project distinguishes:
+```bash
+python examples/memory_demo.py
+```
+
+Run one example at a time to isolate errors and understand its behavior.
+
+### Recommended learning sequence
+
+1. `memory_demo.py` — start with the simplest memory concepts.
+2. `conversation_memory_demo.py` — understand conversational follow-ups.
+3. `memory_manager_demo.py` — explore memory organization and retrieval.
+4. `memory_extractor_demo.py` — examine fact extraction.
+5. `route_decision_evaluation_demo.py` — understand routing and decision evaluation.
+6. `agent_evaluation_demo.py` — explore broader agent evaluation.
+7. `python -m ai_rag.agent.workflow` — connect the capabilities in the complete workflow.
+
+The sequence is a suggested learning path, not a statement about execution dependencies.
+
+## 8. RAG and vector storage
+
+The project uses Sentence Transformers to create embeddings and ChromaDB to store and retrieve document representations.
 
 ```text
-fact
-claim
-preference
-context
+Enterprise Documents
+        │
+        ▼
+Embedding Model
+        │
+        ▼
+ChromaDB Collection
+        │
+        ▼
+Similarity Retrieval
+        │
+        ▼
+Retrieved Context
+        │
+        ▼
+Agent Response
 ```
 
-and:
+Relevant directories:
+
+- `documents/` — source documents.
+- `chroma_db/` — root vector database artifacts.
+- `examples/chroma_db/` — example-specific vector database artifacts, if used by the example code.
+- `src/ai_rag/rag/` — retrieval implementation.
+
+Check the ingestion process and configured database path before running RAG-dependent examples. Do not assume the index is automatically created when the agent starts.
+
+## 9. Conversation memory
+
+The project explores how an agent can use earlier interactions without confusing historical information with current operational state.
+
+### Conversation history
+
+Recent messages provide context for follow-up questions and references to previously discussed entities.
+
+### Structured memory
+
+Structured facts can preserve tool results and deterministic business decisions. This makes prior outcomes easier to reference without relying entirely on an LLM's recollection of a conversation.
+
+### Semantic memory
+
+Semantic retrieval can find relevant information by similarity rather than requiring an exact phrase match. Its behavior depends on the implemented storage and retrieval pipeline.
+
+### Memory design principle
+
+Historical facts and current operational state are different:
+
+- Historical questions should use the relevant stored record.
+- Requests for current status should retrieve fresh operational data.
+- A previous tool result should not be treated as proof of the current state.
+
+## 10. Tool orchestration
+
+Current tools include:
+
+- Certificate lifecycle evaluation.
+- Enterprise connection status lookup.
+
+Tool arguments are validated with Pydantic before execution.
 
 ```text
-verified
-unverified
-inferred
+Agent
+  │
+  ▼
+Tool Selection
+  │
+  ▼
+Argument Validation
+  │
+  ▼
+Tool Execution
+  │
+  ▼
+Tool Result
+  │
+  ▼
+Application Decision
 ```
 
-This provides a foundation for more reliable enterprise memory.
+The application should distinguish invalid arguments, tool execution failures, and valid business results. A successful tool invocation does not necessarily mean the business operation succeeded.
 
----
+## 11. Deterministic decisioning
 
-### 4. Keep the source of truth separate from indexes
+Business rules remain in application code.
 
-Semantic memory is an index over structured memory.
+The LLM can help identify the information required for a decision, but the application evaluates the returned data against defined rules.
 
-The vector database should not become the authoritative representation of business state merely because it is convenient for retrieval.
-
----
-
-### 5. Validate model-generated data
-
-LLM-generated tool arguments and memory objects should cross a validation boundary before entering application logic.
-
-Pydantic is currently used for this boundary.
-
----
-
-### 6. Avoid unnecessary abstraction
-
-The project intentionally avoids building a complex ontology or relationship engine for simple memory requirements.
-
-The goal is to understand when an abstraction provides real value and when it simply adds complexity.
-
-> **Good AI engineering is not about adding more components. It is about putting the right responsibility in the right component.**
-
----
-
-# Current Limitations
-
-This is a learning/engineering prototype rather than a production deployment.
-
-Current limitations include:
-
-* Local in-memory structured memory
-* Local ChromaDB persistence
-* No distributed state management
-* No authentication/authorization layer
-* No production secrets management
-* No transactional consistency between structured memory and semantic index
-* Limited evaluation framework
-* Local LLM inference
-* No production-grade observability
-* No human approval service
-* No external enterprise system integrations
-
-These are intentional boundaries for the current stage of the project.
-
----
-
-# Roadmap
-
-Planned areas for further exploration:
-
-* [ ] Conversation memory
-* [ ] Memory extraction integrated with `MemoryManager`
-* [ ] RAG + memory combined retrieval
-* [ ] Improved tool orchestration
-* [ ] Agent evaluation
-* [ ] Guardrails
-* [ ] Structured output reliability
-* [ ] Reranking
-* [ ] LangGraph comparison
-* [ ] MCP integration
-* [ ] Human-in-the-loop workflows
-* [ ] Observability and tracing
-* [ ] Production persistence
-* [ ] API layer
-* [ ] Web UI
-* [ ] Deployment
-
----
-
-# Why I Built This
-
-Enterprise AI systems are more than an LLM connected to a vector database.
-
-They require careful separation between:
+For example, certificate lifecycle decisions can use remaining validity, connection status, and configured thresholds to determine the next action.
 
 ```text
-Language Understanding
-        +
-Retrieval
-        +
-Memory
-        +
-Tool Use
-        +
-Deterministic Business Logic
-        +
-Validation
-        +
-Orchestration
-        +
-Evaluation
+Validated Operational Data
+           │
+           ▼
+    Business Rules
+           │
+           ▼
+  Deterministic Outcome
+           │
+           ▼
+     Final Response
 ```
 
-This project is an effort to understand and implement those building blocks from first principles, using a realistic enterprise certificate-management scenario.
+The response should reflect the actual decision produced by the application. The LLM must not invent approvals or operational outcomes that the decision logic did not return.
 
-The emphasis is on **engineering the system around the model**, rather than treating the LLM itself as the entire application.
+## 12. Project structure
 
----
+```text
+Enterprise-AI-RAG-Agent/
+├── src/
+│   └── ai_rag/
+│       ├── agent/
+│       │   ├── workflow.py
+│       │   ├── nodes.py
+│       │   ├── state.py
+│       │   ├── intent.py
+│       │   └── decisioning.py
+│       ├── rag/
+│       ├── memory/
+│       └── tools/
+├── examples/
+│   ├── agent_evaluation_demo.py
+│   ├── conversation_memory_demo.py
+│   ├── memory_demo.py
+│   ├── memory_extractor_demo.py
+│   ├── memory_manager_demo.py
+│   ├── route_decision_evaluation_demo.py
+│   └── chroma_db/
+├── documents/
+├── chroma_db/
+├── tests/
+├── pyproject.toml
+└── README.md
+```
+
+## 13. Troubleshooting
+
+| Problem | Checks |
+|---|---|
+| `ollama: command not found` | Install Ollama and verify the executable is on your `PATH`. |
+| Connection refused | Start the Ollama application or service. |
+| Model not found | Run `ollama list` and pull the configured model. |
+| `ModuleNotFoundError: ai_rag` | Activate `.venv` and install the project with `pip install -e .`. |
+| Example import errors | Run from the repository root and check the example's module structure. |
+| No documents retrieved | Verify document ingestion, collection name, and ChromaDB path. |
+| Unexpected memory responses | Inspect stored messages, structured facts, and whether the request needs historical or fresh operational data. |
+
+## 14. Roadmap
+
+- [x] Conversation memory foundations
+- [x] RAG integration foundations
+- [x] Tool orchestration and argument validation
+- [x] Deterministic business decisioning
+- [ ] LangGraph-based workflow orchestration
+- [ ] Agent evaluation and regression tests
+- [ ] Guardrails and policy enforcement
+- [ ] Model Context Protocol (MCP)
+- [ ] Human-in-the-loop approvals
+- [ ] Observability and tracing
+- [ ] Persistent memory and workflow checkpointing
+
+## 15. Engineering principle
+
+An LLM should be a reasoning component inside a well-engineered system—not the system itself.
+
+Retrieval, memory, validation, execution, workflow state, and business decisions should remain explicit and independently testable.
 
 ## Author
 
@@ -728,6 +366,6 @@ The emphasis is on **engineering the system around the model**, rather than trea
 
 Lead Software Engineer | AI Engineering | Full-Stack | Software Architecture
 
-* Portfolio: https://pradeepreddyj-portfolio.vercel.app/
-* GitHub: https://github.com/Pradeep-1612
-* LinkedIn: https://www.linkedin.com/in/pradeep-reddy-juturu/
+- Portfolio: https://pradeepreddyj-portfolio.vercel.app/
+- GitHub: https://github.com/Pradeep-1612
+- LinkedIn: https://www.linkedin.com/in/pradeep-reddy-juturu/
