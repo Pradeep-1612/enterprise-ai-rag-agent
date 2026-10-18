@@ -31,48 +31,49 @@ def retrieve(state):
 def prepare_agent(state):
     print("\n[NODE] PREPARE_AGENT")
 
+    memory = state["conversation_memory"]
+    history = memory.get_recent(limit=10)
+
     state["messages"] = [
         {
-            "role": "user",
+            "role": "system",
             "content": f"""
 You are an enterprise certificate management assistant.
 
-You have two tools:
+Follow these tool execution rules:
+- Call evaluate_certificate when remaining days are provided.
+- Call get_connection_status when a connection ID is provided.
+- Call all applicable tools before generating a final answer.
+- Tool results are authoritative; do not contradict them.
+- Only recommend actions supported by policy or tool results.
 
-1. evaluate_certificate
-   - MUST be called whenever the question provides the number
-     of days remaining.
-
-2. get_connection_status
-   - MUST be called whenever the question provides a connection ID.
-
-IMPORTANT TOOL EXECUTION RULES:
-
-- If the question contains both remaining days and a connection ID,
-  call BOTH tools.
-- Call all applicable tools BEFORE generating a final answer.
-- Tool calls MUST be made using the provided tool-calling interface.
-- Do NOT write tool calls as JSON or plain text.
-- Do NOT generate a final answer until all applicable tools have returned.
-- Tool results are authoritative.
-- Do not contradict tool results.
-- Do not infer that a conditional action is currently required.
-- Only recommend actions explicitly supported by the policy or tool results.
+CONVERSATION RULES:
+- Use conversation history to resolve references in follow-up questions.
+- If history contains enough information to answer a question,
+  answer directly without calling tools unnecessarily.
+- Call tools when the question requires current system data
+  or a new business evaluation.
+- Do not repeat a previous business decision unless relevant
+  to the current question.
 
 Retrieved policy context:
 {state["context"]}
-
-Question:
-{state["question"]}
 """
+        },
+        *history,
+        {
+            "role": "user",
+            "content": state["question"]
         }
     ]
 
-    state["steps"].append(
-        "prepared_agent"
-    )
+    state["steps"].append("prepared_agent")
 
-    state["next_node"] = "agent"
+    state["next_node"] = (
+        "agent"
+        if state.get("intent") == "operational"
+        else "final_agent"
+    )
 
     return state
 
@@ -280,171 +281,75 @@ def tools(state):
 
     return state
 
-
-def route_after_tools(state):
-    print("\n[NODE] ROUTE_AFTER_TOOLS")
-
-    certificate_result = None
-    connection_result = None
-
-    for item in state["tool_results"]:
-
-        if item["tool"] == "evaluate_certificate":
-            certificate_result = item["result"]
-
-        elif item["tool"] == "get_connection_status":
-            connection_result = item["result"]
-
-    # -----------------------------------------------------
-    # Certificate evaluation failed
-    # -----------------------------------------------------
-
-    if (
-        not certificate_result
-        or not certificate_result["success"]
-    ):
-
-        state["decision"] = {
-            "action": "unable_to_evaluate",
-            "reason": "Certificate evaluation failed."
-        }
-
-        state["steps"].append(
-            "route_after_tools"
-        )
-
-        state["next_node"] = "final_agent"
-
-        return state
-
-    certificate = certificate_result["data"]
-
-    # -----------------------------------------------------
-    # 1. Emergency takes highest priority
-    # -----------------------------------------------------
-
-    if certificate["emergency_renewal"]:
-
-        state["decision"] = {
-            "action": "emergency_renewal",
-            "reason": (
-                "Certificate has fewer than 7 days remaining."
-            )
-        }
-
-    # -----------------------------------------------------
-    # 2. Certificate requires notification
-    # -----------------------------------------------------
-
-    elif certificate["notify_operations"]:
-
-        if (
-            connection_result
-            and connection_result["success"]
-        ):
-
-            connection = connection_result["data"]
-
-            if connection["status"] == "failed":
-
-                state["decision"] = {
-                    "action": "human_approval",
-                    "reason": (
-                        "Certificate requires operations "
-                        "notification and the associated "
-                        "connection is failed."
-                    )
-                }
-
-            else:
-
-                state["decision"] = {
-                    "action": "notify_operations",
-                    "reason": (
-                        "Certificate has fewer than "
-                        "15 days remaining."
-                    )
-                }
-
-        else:
-
-            state["decision"] = {
-                "action": "notify_operations",
-                "reason": (
-                    "Certificate has fewer than "
-                    "15 days remaining."
-                )
-            }
-
-    # -----------------------------------------------------
-    # 3. Nothing special required
-    # -----------------------------------------------------
-
-    else:
-
-        state["decision"] = {
-            "action": "no_action",
-            "reason": (
-                "Certificate does not currently require "
-                "emergency renewal or operations notification."
-            )
-        }
-
-    state["steps"].append(
-        "route_after_tools"
-    )
-
-    state["next_node"] = "final_agent"
-
-    return state
-
-
 def final_agent(state):
     print("\n[NODE] FINAL_AGENT")
 
-    state["messages"].append({
-        "role": "user",
-        "content": f"""
-The information-gathering phase is complete.
+    if state.get("intent") == "conversation":
+        prompt = f"""
+    Answer the user's question using conversation history
+    and the structured operational records.
 
-Original question:
-{state["question"]}
+    Conversation history:
+    {state["conversation_memory"].get_recent(limit=10)}
 
-Tool results:
-{json.dumps(state["tool_results"], indent=2)}
+    Structured operational records:
+    {state["conversation_memory"].get_recent_facts(limit=10)}
 
-Deterministic business decision:
-{json.dumps(state["decision"], indent=2)}
+    Rules:
+    - Prefer structured tool results over generated assistant prose
+    when answering questions about observed system state.
+    - For historical questions, report the recorded historical fact.
+    - Do not claim historical data represents the current state.
+    - Do not call tools or invent information.
 
-Generate the final response to the user.
+    User question:
+    {state["question"]}
+    """
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a concise enterprise assistant."
+            },
+            {"role": "user", "content": prompt}
+        ]
+    else:
+        state["messages"].append({
+            "role": "user",
+            "content": f"""
+                The information-gathering phase is complete.
 
-STRICT RULES:
-- Treat the deterministic business decision as authoritative.
-- Do not change the action.
-- Do not add actions that are not present in the decision.
-- Do not reinterpret tool results.
-- Do not claim validation occurred unless a tool explicitly returned it.
-- Explain the decision using the actual tool results.
-- Keep the response concise.
-- If the decision is "human_approval", state that human approval is required.
-- Do NOT ask the user to approve, review, authorize, or take the action.
-- Do NOT imply that approval has been granted.
-"""
-    })
+                Original question:
+                {state["question"]}
+
+                Tool results:
+                {json.dumps(state["tool_results"], indent=2)}
+
+                Deterministic business decision:
+                {json.dumps(state["decision"], indent=2)}
+
+                Generate the final response to the user.
+
+                STRICT RULES:
+                - Treat the deterministic business decision as authoritative.
+                - Do not change the action or add unsupported actions.
+                - Do not reinterpret tool results.
+                - Do not claim validation occurred unless a tool explicitly returned it.
+                - Explain the decision using actual tool results.
+                - Keep the response concise.
+                - If the decision is "human_approval", state that human approval is required.
+                - Do NOT ask the user to approve, review, authorize, or take the action.
+                - Do NOT imply that approval has been granted.
+                """
+        })
+        messages = state["messages"]
 
     response = ollama.chat(
         model="llama3.2:3b",
-        messages=state["messages"]
+        messages=messages
     )
 
-    state["steps"].append(
-        "final_agent"
-    )
-
-    state["final_answer"] = (
-        response["message"]["content"]
-    )
-
+    state["steps"].append("final_agent")
+    state["final_answer"] = response["message"]["content"]
     state["next_node"] = "final"
 
     return state
